@@ -1,0 +1,29 @@
+# Hardhat
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
+
+# Debug files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local development
+.DS_Store
+.idea
+.vscode
+
+# Build files
+dist/
+build/
+
+# Solidity coverage
+coverage/
+coverage.json 

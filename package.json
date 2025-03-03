@@ -1,0 +1,38 @@
+{
+  "name": "ercdata",
+  "version": "1.0.0",
+  "description": "ERCData standard for storing AI data on-chain",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "coverage": "hardhat coverage"
+  },
+  "keywords": [
+    "ethereum",
+    "smart-contracts",
+    "ai",
+    "data"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@typechain/ethers-v5": "^10.2.1",
+    "@typechain/hardhat": "^6.1.6",
+    "@types/chai": "^4.3.5",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^20.4.2",
+    "chai": "^4.3.7",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.17.0",
+    "solidity-coverage": "^0.8.4",
+    "ts-node": "^10.9.1",
+    "typechain": "^8.3.1",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.2"
+  }
+} 
