@@ -2,19 +2,19 @@
 
 ## Abstract
 
-A standard interface for storing and managing AI data on the Ethereum blockchain with built-in verification mechanisms. This standard provides a unified way to store, retrieve, verify, and update AI-related data, including model weights, training datasets, or any other type of AI data that requires on-chain availability and verification.
+A standard interface for storing and managing AI-related metadata and verification information on the Ethereum blockchain. This standard provides a unified way to store, retrieve, verify, and update AI-related data fingerprints, metadata, and verification records, enabling transparency and accountability for AI systems.
 
 ## Motivation
 
-As AI technology evolves, there is an increasing need to store and verify AI-related data on-chain. Whether it's model weights, training data, or inference results, having a standardized way to store and verify this information becomes crucial for transparency and accountability. The ERCData standard provides a unified interface for:
+As AI technology evolves, there is an increasing need to establish transparent and verifiable records of AI systems. While storing large AI models or training datasets on-chain is impractical due to size constraints, there's significant value in storing cryptographic proofs, metadata, and verification records. The ERCData standard provides a unified interface for:
 
-- Storing AI model data on-chain
+- Recording cryptographic fingerprints and metadata of AI systems
 - Verifying data authenticity and integrity
 - Managing data providers and verifiers
 - Creating snapshots for versioning and auditing
 - Supporting structured data types with field-level access
-- Tracking data updates and modifications
-- Maintaining a clear chain of custody for AI data
+- Tracking updates and modifications to AI systems
+- Maintaining a clear chain of custody for AI-related information
 
 ## Specification
 
