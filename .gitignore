@@ -27,3 +27,7 @@ build/
 # Solidity coverage
 coverage/
 coverage.json 
+
+# Test files
+test-deployed.ts
+test-deployed-full.ts

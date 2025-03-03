@@ -214,26 +214,67 @@ function getDataTypeInfo(string calldata typeName)
 ### Installation
 
 ```bash
+# Install dependencies
 npm install
 ```
 
 ### Compile
 
 ```bash
+# Compile contracts
 npx hardhat compile
 ```
 
 ### Test
 
 ```bash
+# Run tests
 npx hardhat test
 ```
 
-### Deploy
+### Deployment
+
+#### Setup Environment
+
+1. Create a `.env` file based on `.env.example`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit the `.env` file with your private key and RPC URLs:
+   ```
+   # Replace with your actual private key (without 0x prefix)
+   PRIVATE_KEY=your_private_key_here
+   
+   # Use default Base RPC URLs or replace with your own
+   BASE_MAINNET_RPC_URL=https://mainnet.base.org
+   BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+   
+   # Add API keys for contract verification
+   BASESCAN_API_KEY=your_basescan_api_key
+   ```
+
+#### Deploy to Base Testnet (Sepolia)
 
 ```bash
-npx hardhat run scripts/deploy.js --network <network>
+npx hardhat run scripts/deploy.ts --network base-sepolia
 ```
+
+#### Deploy to Base Mainnet
+
+```bash
+npx hardhat run scripts/deploy.ts --network base
+```
+
+#### Verify Contract
+
+Contract verification should happen automatically in the deployment script. If it fails, you can verify manually:
+
+```bash
+npx hardhat verify --network base-sepolia DEPLOYED_CONTRACT_ADDRESS
+```
+
+Replace `DEPLOYED_CONTRACT_ADDRESS` with your contract's address.
 
 ## Copyright
 
