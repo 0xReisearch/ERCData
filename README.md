@@ -201,11 +201,13 @@ function getDataTypeInfo(string calldata typeName)
 
 ## Use Cases
 
-1. **AI Model Transparency**: Store model weights on-chain for transparency and auditability
-2. **Verifiable Datasets**: Create verifiable training datasets for AI models
-3. **Model Evolution Tracking**: Use snapshots to track AI model evolution over time
-4. **Decentralized AI Marketplaces**: Build marketplaces for AI models with verifiable quality
-5. **AI Governance**: Implement on-chain governance for AI systems
+1. **AI Model Metadata & Provenance**: Store cryptographic hashes, metadata, and provenance information about AI models while keeping the actual models off-chain
+2. **Model Performance Metrics**: Record and verify performance metrics, accuracy scores, and evaluation results for AI models
+3. **Training Dataset Fingerprints**: Store dataset manifests, statistical summaries, and cryptographic fingerprints of training data
+4. **AI Inference Results**: Record and verify outputs from AI models with complete audit trails
+5. **Model Governance & Compliance**: Track model versions, approvals, and compliance certifications with immutable records
+6. **Federated Learning Coordination**: Coordinate federated learning processes with on-chain verification of participant contributions
+7. **AI Oracle Networks**: Enable decentralized networks of AI oracles to provide verified AI services with transparent records
 
 ## Getting Started
 
