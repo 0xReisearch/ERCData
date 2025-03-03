@@ -266,16 +266,6 @@ npx hardhat run scripts/deploy.ts --network base-sepolia
 npx hardhat run scripts/deploy.ts --network base
 ```
 
-#### Verify Contract
-
-Contract verification should happen automatically in the deployment script. If it fails, you can verify manually:
-
-```bash
-npx hardhat verify --network base-sepolia DEPLOYED_CONTRACT_ADDRESS
-```
-
-Replace `DEPLOYED_CONTRACT_ADDRESS` with your contract's address.
-
 ## Copyright
 
 Copyright and related rights waived via [CC0](https://creativecommons.org/publicdomain/zero/1.0/). 
