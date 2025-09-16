@@ -473,7 +473,3 @@ const expectedHash = ethers.utils.keccak256(dataArray[0]);
 const hashSel = ethers.utils.defaultAbiCoder.encode(["bytes4","bytes32"], ["0x48415348", expectedHash]);
 await ercData.connect(verifier).verifyBatch(batchId, hashSel);
 ```
-
-## Copyright
-
-Copyright and related rights waived via [CC0](https://creativecommons.org/publicdomain/zero/1.0/). 
