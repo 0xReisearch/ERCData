@@ -5,12 +5,14 @@ import "./IERCData.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 /**
  * @title ERCData
  * @dev Reference implementation of the ERCData standard for AI data storage
  */
-contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard {
+contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     // Internal struct definitions
     struct Snapshot {
         bytes32 id;
@@ -36,8 +38,18 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard {
     uint256 private _nextDataId;
     uint256 private _nextBatchId;
 
+    // Verification selectors (abi.encode(bytes4("EP12")), abi.encode(bytes4("HASH")))
+    bytes4 private constant VERIF_EIP712 = 0x45503132; // "EP12"
+    bytes4 private constant VERIF_HASH = 0x48415348;   // "HASH"
+
+    // EIP-712 typehash for provider-signed entries
+    // ERCDataEntry(bytes32 dataHash,bytes32 metadataHash,string dataType,address provider)
+    bytes32 private constant DATA_ENTRY_TYPEHASH = keccak256(
+        "ERCDataEntry(bytes32 dataHash,bytes32 metadataHash,string dataType,address provider)"
+    );
+
     // Constructor
-    constructor() {
+    constructor() EIP712("ERCData", "1") {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _setupRole(SNAPSHOT_ROLE, msg.sender);
         _nextDataId = 1;
@@ -303,13 +315,13 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard {
         require(hasRole(VERIFIER_ROLE, msg.sender), "ERCData: must have verifier role");
         require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
 
-        bool isValid = _verifyDataIntegrity(dataId, verificationData);
+        (bool isValid, string memory method) = _verifyDataIntegrity(dataId, verificationData);
 
         _verifications[dataId] = VerificationInfo({
             verifier: msg.sender,
             timestamp: block.timestamp,
             isValid: isValid,
-            verificationMethod: "STANDARD",
+            verificationMethod: method,
             verificationData: verificationData
         });
 
@@ -328,16 +340,28 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard {
     {
         require(hasRole(VERIFIER_ROLE, msg.sender), "ERCData: must have verifier role");
         
-        bool isValid = true;
+        bool aggregateValid = true;
         for (uint256 i = 1; i < _nextDataId; i++) {
             if (_dataEntries[i].batchId == batchId) {
-                isValid = isValid && _verifyDataIntegrity(i, verificationData);
-                if (!isValid) break;
+                (bool ok, string memory method) = _verifyDataIntegrity(i, verificationData);
+
+                // Record per-entry verification info and state
+                _verifications[i] = VerificationInfo({
+                    verifier: msg.sender,
+                    timestamp: block.timestamp,
+                    isValid: ok,
+                    verificationMethod: method,
+                    verificationData: verificationData
+                });
+                _dataEntries[i].isVerified = ok;
+
+                emit DataVerified(i, msg.sender, ok, block.timestamp);
+                aggregateValid = aggregateValid && ok;
             }
         }
 
-        emit BatchVerified(batchId, msg.sender, isValid);
-        return isValid;
+        emit BatchVerified(batchId, msg.sender, aggregateValid);
+        return aggregateValid;
     }
 
     function updateData(
@@ -377,10 +401,39 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard {
     function _verifyDataIntegrity(uint256 dataId, bytes calldata verificationData)
         internal
         view
-        returns (bool)
+        returns (bool, string memory)
     {
-        // This is a placeholder for actual verification logic
-        // Implementations should override this with their specific verification method
-        return true;
+        DataEntry storage entry = _dataEntries[dataId];
+
+        // Expect verificationData to be abi.encode(selector) or abi.encode(selector, payload)
+        if (verificationData.length == 32) {
+            bytes4 selector = abi.decode(verificationData, (bytes4));
+            require(selector == VERIF_EIP712, "ERCData: invalid selector for length");
+
+            // EIP-712 provider signature verification
+            bytes32 dataHash = keccak256(entry.data);
+            bytes32 metadataHash = keccak256(entry.metadata);
+            bytes32 structHash = keccak256(
+                abi.encode(
+                    DATA_ENTRY_TYPEHASH,
+                    dataHash,
+                    metadataHash,
+                    keccak256(bytes(entry.dataType)),
+                    entry.provider
+                )
+            );
+            bytes32 digest = _hashTypedDataV4(structHash);
+
+            address recovered = ECDSA.recover(digest, entry.signature);
+            bool ok = (recovered == entry.provider);
+            return (ok, "EIP712_PROVIDER_SIG");
+        } else if (verificationData.length == 64) {
+            (bytes4 selector, bytes32 expectedHash) = abi.decode(verificationData, (bytes4, bytes32));
+            require(selector == VERIF_HASH, "ERCData: unknown selector");
+            bool ok = (keccak256(entry.data) == expectedHash);
+            return (ok, "DATA_HASH_EQ");
+        } else {
+            revert("ERCData: invalid verificationData format");
+        }
     }
-} 
+}
