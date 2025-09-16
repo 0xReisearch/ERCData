@@ -210,6 +210,44 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         return _dataEntries[dataId].fields[fieldName];
     }
 
+    // Structured field setters
+    function setField(uint256 dataId, string calldata fieldName, bytes calldata value)
+        external
+        override
+        whenNotPaused
+        nonReentrant
+        returns (bool)
+    {
+        DataEntry storage entry = _dataEntries[dataId];
+        require(entry.provider != address(0), "ERCData: data does not exist");
+        require(entry.provider == msg.sender, "ERCData: not the data provider");
+        require(_fieldExists(entry.dataType, fieldName), "ERCData: field not registered");
+
+        entry.fields[fieldName] = value;
+        emit FieldSet(dataId, fieldName);
+        return true;
+    }
+
+    function setFields(uint256 dataId, string[] calldata fieldNames, bytes[] calldata values)
+        external
+        override
+        whenNotPaused
+        nonReentrant
+        returns (bool)
+    {
+        require(fieldNames.length == values.length, "ERCData: array lengths mismatch");
+        DataEntry storage entry = _dataEntries[dataId];
+        require(entry.provider != address(0), "ERCData: data does not exist");
+        require(entry.provider == msg.sender, "ERCData: not the data provider");
+
+        for (uint256 i = 0; i < fieldNames.length; i++) {
+            require(_fieldExists(entry.dataType, fieldNames[i]), "ERCData: field not registered");
+            entry.fields[fieldNames[i]] = values[i];
+            emit FieldSet(dataId, fieldNames[i]);
+        }
+        return true;
+    }
+
     function getBatchData(uint256 batchId) 
         external 
         view 
@@ -435,5 +473,12 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         } else {
             revert("ERCData: invalid verificationData format");
         }
+    }
+
+    function _fieldExists(string memory typeName, string memory fieldName) internal view returns (bool) {
+        if (!_dataTypes[typeName].exists) return false;
+        // If a field was added, it must have a non-empty type string
+        string memory t = _dataTypes[typeName].fieldTypes[fieldName];
+        return bytes(t).length != 0;
     }
 }

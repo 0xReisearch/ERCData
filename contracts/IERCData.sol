@@ -90,6 +90,7 @@ interface IERCData {
     // Events for data type management
     event DataTypeRegistered(string typeName);
     event FieldAdded(string indexed dataType, string fieldName, string fieldType, bool indexed isIndexed);
+    event FieldSet(uint256 indexed dataId, string indexed fieldName);
     
     // Events for snapshots
     event SnapshotTaken(bytes32 indexed snapshotId, string name, uint256 timestamp);
@@ -110,6 +111,8 @@ interface IERCData {
     function registerDataType(string calldata typeName) external returns (bool);
     function addField(string calldata typeName, string calldata fieldName, string calldata fieldType, bool isIndexed) external;
     function getDataTypeInfo(string calldata typeName) external view returns (DataTypeInfoView memory);
+    function setField(uint256 dataId, string calldata fieldName, bytes calldata value) external returns (bool);
+    function setFields(uint256 dataId, string[] calldata fieldNames, bytes[] calldata values) external returns (bool);
 
     // Snapshot management
     function createSnapshot(string calldata name, uint256[] calldata dataIds) external returns (bytes32);

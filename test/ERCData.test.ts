@@ -104,6 +104,59 @@ describe("ERCData", function () {
         });
     });
 
+    describe("Structured Fields", function () {
+        let dataId: number;
+
+        beforeEach(async function () {
+            await ercData.addField(TEST_DATA_TYPE, "accuracy", "uint256", true);
+            await ercData.addField(TEST_DATA_TYPE, "author", "string", false);
+            const signature = await signEntry(provider, ercData, TEST_DATA_TYPE, TEST_DATA, TEST_METADATA);
+            const tx = await ercData.connect(provider).storeData(
+                TEST_DATA_TYPE,
+                TEST_DATA,
+                TEST_METADATA,
+                ethers.utils.arrayify(signature)
+            );
+            const rc = await tx.wait();
+            dataId = rc.events?.find(e => e.event === "DataStored")?.args?.[0].toNumber();
+        });
+
+        it("Should allow provider to set and read a field", async function () {
+            const value = ethers.utils.defaultAbiCoder.encode(["uint256"], [95]);
+            await ercData.connect(provider).setField(dataId, "accuracy", value);
+            const raw = await ercData.getField(dataId, "accuracy");
+            const [decoded] = ethers.utils.defaultAbiCoder.decode(["uint256"], raw);
+            expect(decoded.toNumber()).to.equal(95);
+        });
+
+        it("Should batch set multiple fields", async function () {
+            const values = [
+                ethers.utils.defaultAbiCoder.encode(["uint256"], [88]),
+                ethers.utils.toUtf8Bytes("alice"),
+            ];
+            await ercData.connect(provider).setFields(dataId, ["accuracy", "author"], values);
+            const accRaw = await ercData.getField(dataId, "accuracy");
+            const [acc] = ethers.utils.defaultAbiCoder.decode(["uint256"], accRaw);
+            expect(acc.toNumber()).to.equal(88);
+            const authorRaw = await ercData.getField(dataId, "author");
+            expect(ethers.utils.toUtf8String(authorRaw)).to.equal("alice");
+        });
+
+        it("Should prevent non-provider from setting a field", async function () {
+            const value = ethers.utils.defaultAbiCoder.encode(["uint256"], [42]);
+            await expect(
+                ercData.connect(user).setField(dataId, "accuracy", value)
+            ).to.be.revertedWith("ERCData: not the data provider");
+        });
+
+        it("Should revert when field not registered", async function () {
+            const value = ethers.utils.defaultAbiCoder.encode(["uint256"], [1]);
+            await expect(
+                ercData.connect(provider).setField(dataId, "unknownField", value)
+            ).to.be.revertedWith("ERCData: field not registered");
+        });
+    });
+
     describe("Data Storage", function () {
         it("Should store data correctly", async function () {
             const signature = await signEntry(provider, ercData, TEST_DATA_TYPE, TEST_DATA, TEST_METADATA);

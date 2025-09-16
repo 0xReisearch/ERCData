@@ -309,6 +309,56 @@ function getDataTypeInfo(string calldata typeName)
     returns (DataTypeInfoView memory);
 ```
 
+### Structured Fields
+
+Structured fields let providers attach typed, per-entry values (e.g., `accuracy`, `author`) according to a registered schema.
+
+Solidity interface:
+
+```solidity
+// Set a single field value (provider-only)
+function setField(uint256 dataId, string calldata fieldName, bytes calldata value) external returns (bool);
+
+// Set multiple field values atomically (provider-only)
+function setFields(uint256 dataId, string[] calldata fieldNames, bytes[] calldata values) external returns (bool);
+
+// Read back a field value
+function getField(uint256 dataId, string calldata fieldName) external view returns (bytes memory);
+```
+
+Notes:
+- Fields must be registered for the entry’s `dataType` via `addField` before they can be set.
+- Only the entry’s `provider` can set fields on that entry.
+- Values are raw `bytes`; encode/decode them as needed (ABI-encode for typed values).
+- Setting fields does not affect verification status; use `updateData` to change core bytes (which resets verification).
+
+Example (Ethers.js v5):
+
+```ts
+// 1) Define schema for the data type (admin)
+await ercData.addField("AI_MODEL_WEIGHTS", "accuracy", "uint256", true);
+await ercData.addField("AI_MODEL_WEIGHTS", "author", "string", false);
+
+// 2) Provider stores data (see quick start above) and gets dataId
+// ... assume dataId is known ...
+
+// 3) Provider sets fields
+const acc = ethers.utils.defaultAbiCoder.encode(["uint256"], [95]);
+await ercData.connect(provider).setField(dataId, "accuracy", acc);
+
+// Batch set multiple fields
+const values = [
+  ethers.utils.defaultAbiCoder.encode(["uint256"], [88]),
+  ethers.utils.toUtf8Bytes("alice"),
+];
+await ercData.connect(provider).setFields(dataId, ["accuracy", "author"], values);
+
+// 4) Reading fields
+const rawAcc = await ercData.getField(dataId, "accuracy");
+const [decodedAcc] = ethers.utils.defaultAbiCoder.decode(["uint256"], rawAcc);
+const author = ethers.utils.toUtf8String(await ercData.getField(dataId, "author"));
+```
+
 ## Use Cases
 
 1. **AI Model Metadata & Provenance**: Store cryptographic hashes, metadata, and provenance information about AI models while keeping the actual models off-chain
