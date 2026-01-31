@@ -35,6 +35,9 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     mapping(bytes32 => Snapshot) private _snapshots;
     mapping(uint256 => uint256[]) private _batchEntries; // batchId => array of dataIds
     
+    // Privacy and access control
+    mapping(uint256 => mapping(address => bool)) private _accessList; // dataId => address => canRead
+    
     bytes32[] private _snapshotIds;
     uint256 private _nextDataId;
     uint256 private _nextBatchId;
@@ -90,6 +93,41 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         entry.signature = signature;
         entry.isVerified = false;
         entry.batchId = 0;
+        entry.isPrivate = false;
+
+        _providerData[msg.sender].push(dataId);
+
+        emit DataStored(dataId, msg.sender, dataType, block.timestamp);
+        return dataId;
+    }
+
+    function storePrivateData(
+        string calldata dataType,
+        bytes calldata data,
+        bytes calldata metadata,
+        bytes calldata signature
+    ) external whenNotPaused nonReentrant returns (uint256) {
+        require(hasRole(PROVIDER_ROLE, msg.sender), "ERCData: must have provider role");
+        require(bytes(dataType).length > 0, "ERCData: dataType cannot be empty");
+        require(data.length > 0, "ERCData: data cannot be empty");
+        require(data.length <= MAX_DATA_SIZE, "ERCData: data too large");
+        require(metadata.length <= MAX_METADATA_SIZE, "ERCData: metadata too large");
+        require(_dataTypes[dataType].exists, "ERCData: data type not registered");
+
+        uint256 dataId = _nextDataId++;
+
+        // Initialize struct fields individually
+        DataEntry storage entry = _dataEntries[dataId];
+        entry.dataId = dataId;
+        entry.provider = msg.sender;
+        entry.timestamp = block.timestamp;
+        entry.dataType = dataType;
+        entry.data = data;
+        entry.metadata = metadata;
+        entry.signature = signature;
+        entry.isVerified = false;
+        entry.batchId = 0;
+        entry.isPrivate = true;
 
         _providerData[msg.sender].push(dataId);
 
@@ -133,6 +171,7 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
             entry.signature = signatures[i];
             entry.isVerified = false;
             entry.batchId = batchId;
+            entry.isPrivate = false;
 
             _providerData[msg.sender].push(dataId);
             _batchEntries[batchId].push(dataId); // Add to batch mapping
@@ -141,6 +180,56 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
 
         emit BatchProcessed(dataType, batchId, entriesCount);
         return batchId;
+    }
+
+    // Privacy and access control functions
+    function grantAccess(uint256 dataId, address reader) external whenNotPaused nonReentrant {
+        require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
+        require(_dataEntries[dataId].provider == msg.sender, "ERCData: only provider can grant access");
+        require(_dataEntries[dataId].isPrivate, "ERCData: data is not private");
+        require(reader != address(0), "ERCData: invalid reader address");
+
+        _accessList[dataId][reader] = true;
+        emit AccessGranted(dataId, reader);
+    }
+
+    function revokeAccess(uint256 dataId, address reader) external whenNotPaused nonReentrant {
+        require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
+        require(_dataEntries[dataId].provider == msg.sender, "ERCData: only provider can revoke access");
+        require(_dataEntries[dataId].isPrivate, "ERCData: data is not private");
+
+        _accessList[dataId][reader] = false;
+        emit AccessRevoked(dataId, reader);
+    }
+
+    function grantBatchAccess(uint256 dataId, address[] calldata readers) external whenNotPaused nonReentrant {
+        require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
+        require(_dataEntries[dataId].provider == msg.sender, "ERCData: only provider can grant access");
+        require(_dataEntries[dataId].isPrivate, "ERCData: data is not private");
+        require(readers.length > 0, "ERCData: empty readers array");
+        require(readers.length <= 100, "ERCData: too many readers"); // Gas limit protection
+
+        for (uint256 i = 0; i < readers.length; i++) {
+            require(readers[i] != address(0), "ERCData: invalid reader address");
+            _accessList[dataId][readers[i]] = true;
+            emit AccessGranted(dataId, readers[i]);
+        }
+    }
+
+    function hasAccess(uint256 dataId, address reader) external view returns (bool) {
+        require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
+        
+        DataEntry storage entry = _dataEntries[dataId];
+        
+        // Public data is always accessible
+        if (!entry.isPrivate) {
+            return true;
+        }
+        
+        // Private data access control
+        return entry.provider == reader || 
+               _accessList[dataId][reader] || 
+               hasRole(DEFAULT_ADMIN_ROLE, reader);
     }
 
     // Data type management
@@ -219,6 +308,17 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     {
         require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
         DataEntry storage entry = _dataEntries[dataId];
+        
+        // Access control check
+        if (entry.isPrivate) {
+            require(
+                entry.provider == msg.sender || 
+                _accessList[dataId][msg.sender] || 
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+                "ERCData: access denied"
+            );
+        }
+        
         return DataEntryView({
             dataId: entry.dataId,
             provider: entry.provider,
@@ -228,7 +328,8 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
             metadata: entry.metadata,
             signature: entry.signature,
             isVerified: entry.isVerified,
-            batchId: entry.batchId
+            batchId: entry.batchId,
+            isPrivate: entry.isPrivate
         });
     }
 
@@ -239,7 +340,19 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         returns (bytes memory)
     {
         require(_dataEntries[dataId].provider != address(0), "ERCData: data does not exist");
-        return _dataEntries[dataId].fields[fieldName];
+        DataEntry storage entry = _dataEntries[dataId];
+        
+        // Access control check
+        if (entry.isPrivate) {
+            require(
+                entry.provider == msg.sender || 
+                _accessList[dataId][msg.sender] || 
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+                "ERCData: access denied"
+            );
+        }
+        
+        return entry.fields[fieldName];
     }
 
     // Structured field setters
@@ -293,17 +406,39 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         
         for (uint256 i = 0; i < dataIds.length; i++) {
             DataEntry storage entry = _dataEntries[dataIds[i]];
-            entries[i] = DataEntryView({
-                dataId: entry.dataId,
-                provider: entry.provider,
-                timestamp: entry.timestamp,
-                dataType: entry.dataType,
-                data: entry.data,
-                metadata: entry.metadata,
-                signature: entry.signature,
-                isVerified: entry.isVerified,
-                batchId: entry.batchId
-            });
+            
+            // Access control check - if private and no access, skip entry or revert
+            if (entry.isPrivate && 
+                entry.provider != msg.sender && 
+                !_accessList[dataIds[i]][msg.sender] && 
+                !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+                // For batch operations, we'll provide empty data for inaccessible entries
+                entries[i] = DataEntryView({
+                    dataId: entry.dataId,
+                    provider: entry.provider,
+                    timestamp: entry.timestamp,
+                    dataType: entry.dataType,
+                    data: new bytes(0), // Empty data for inaccessible entries
+                    metadata: new bytes(0), // Empty metadata for inaccessible entries
+                    signature: new bytes(0), // Empty signature for inaccessible entries
+                    isVerified: entry.isVerified,
+                    batchId: entry.batchId,
+                    isPrivate: entry.isPrivate
+                });
+            } else {
+                entries[i] = DataEntryView({
+                    dataId: entry.dataId,
+                    provider: entry.provider,
+                    timestamp: entry.timestamp,
+                    dataType: entry.dataType,
+                    data: entry.data,
+                    metadata: entry.metadata,
+                    signature: entry.signature,
+                    isVerified: entry.isVerified,
+                    batchId: entry.batchId,
+                    isPrivate: entry.isPrivate
+                });
+            }
         }
 
         return entries;

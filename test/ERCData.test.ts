@@ -484,4 +484,183 @@ describe("ERCData", function () {
             ).to.be.revertedWith("ERCData: not the data provider");
         });
     });
+
+    describe("Privacy and Access Control", function () {
+        let publicDataId: number;
+        let privateDataId: number;
+        let reader1: SignerWithAddress;
+        let reader2: SignerWithAddress;
+
+        beforeEach(async function () {
+            [, , , , reader1, reader2] = await ethers.getSigners();
+
+            // Store public data
+            const publicSignature = await signEntry(provider, ercData, TEST_DATA_TYPE, TEST_DATA, TEST_METADATA);
+            const publicTx = await ercData.connect(provider).storeData(
+                TEST_DATA_TYPE,
+                TEST_DATA,
+                TEST_METADATA,
+                ethers.utils.arrayify(publicSignature)
+            );
+            const publicReceipt = await publicTx.wait();
+            const publicEvent = publicReceipt.events?.find(e => e.event === "DataStored");
+            publicDataId = publicEvent?.args?.[0].toNumber();
+
+            // Store private data
+            const privateData = ethers.utils.toUtf8Bytes("private model weights");
+            const privateMetadata = ethers.utils.toUtf8Bytes('{"version": "1.0", "private": true}');
+            const privateSignature = await signEntry(provider, ercData, TEST_DATA_TYPE, privateData, privateMetadata);
+            const privateTx = await ercData.connect(provider).storePrivateData(
+                TEST_DATA_TYPE,
+                privateData,
+                privateMetadata,
+                ethers.utils.arrayify(privateSignature)
+            );
+            const privateReceipt = await privateTx.wait();
+            const privateEvent = privateReceipt.events?.find(e => e.event === "DataStored");
+            privateDataId = privateEvent?.args?.[0].toNumber();
+        });
+
+        it("Should store public data correctly", async function () {
+            const data = await ercData.getData(publicDataId);
+            expect(data.isPrivate).to.be.false;
+        });
+
+        it("Should store private data correctly", async function () {
+            const data = await ercData.connect(provider).getData(privateDataId);
+            expect(data.isPrivate).to.be.true;
+        });
+
+        it("Should allow anyone to read public data", async function () {
+            const data = await ercData.connect(user).getData(publicDataId);
+            expect(data.data).to.not.be.empty;
+        });
+
+        it("Should allow provider to read own private data", async function () {
+            const data = await ercData.connect(provider).getData(privateDataId);
+            expect(data.data).to.not.be.empty;
+        });
+
+        it("Should allow admin to read any private data", async function () {
+            const data = await ercData.connect(owner).getData(privateDataId);
+            expect(data.data).to.not.be.empty;
+        });
+
+        it("Should prevent unauthorized access to private data", async function () {
+            await expect(
+                ercData.connect(user).getData(privateDataId)
+            ).to.be.revertedWith("ERCData: access denied");
+        });
+
+        it("Should grant access to private data", async function () {
+            // Grant access
+            await ercData.connect(provider).grantAccess(privateDataId, reader1.address);
+            
+            // Check access granted
+            expect(await ercData.hasAccess(privateDataId, reader1.address)).to.be.true;
+            
+            // Reader should now be able to access the data
+            const data = await ercData.connect(reader1).getData(privateDataId);
+            expect(data.data).to.not.be.empty;
+        });
+
+        it("Should revoke access to private data", async function () {
+            // Grant then revoke access
+            await ercData.connect(provider).grantAccess(privateDataId, reader1.address);
+            await ercData.connect(provider).revokeAccess(privateDataId, reader1.address);
+            
+            // Check access revoked
+            expect(await ercData.hasAccess(privateDataId, reader1.address)).to.be.false;
+            
+            // Reader should no longer be able to access the data
+            await expect(
+                ercData.connect(reader1).getData(privateDataId)
+            ).to.be.revertedWith("ERCData: access denied");
+        });
+
+        it("Should grant batch access to private data", async function () {
+            const readers = [reader1.address, reader2.address];
+            
+            // Grant batch access
+            await ercData.connect(provider).grantBatchAccess(privateDataId, readers);
+            
+            // Both readers should have access
+            expect(await ercData.hasAccess(privateDataId, reader1.address)).to.be.true;
+            expect(await ercData.hasAccess(privateDataId, reader2.address)).to.be.true;
+            
+            // Both should be able to read the data
+            const data1 = await ercData.connect(reader1).getData(privateDataId);
+            const data2 = await ercData.connect(reader2).getData(privateDataId);
+            expect(data1.data).to.not.be.empty;
+            expect(data2.data).to.not.be.empty;
+        });
+
+        it("Should prevent non-provider from granting access", async function () {
+            await expect(
+                ercData.connect(user).grantAccess(privateDataId, reader1.address)
+            ).to.be.revertedWith("ERCData: only provider can grant access");
+        });
+
+        it("Should prevent access control on public data", async function () {
+            await expect(
+                ercData.connect(provider).grantAccess(publicDataId, reader1.address)
+            ).to.be.revertedWith("ERCData: data is not private");
+        });
+
+        it("Should check hasAccess correctly for public data", async function () {
+            expect(await ercData.hasAccess(publicDataId, user.address)).to.be.true;
+            expect(await ercData.hasAccess(publicDataId, reader1.address)).to.be.true;
+        });
+
+        it("Should check hasAccess correctly for private data", async function () {
+            // Provider should have access
+            expect(await ercData.hasAccess(privateDataId, provider.address)).to.be.true;
+            
+            // Admin should have access
+            expect(await ercData.hasAccess(privateDataId, owner.address)).to.be.true;
+            
+            // Others should not have access
+            expect(await ercData.hasAccess(privateDataId, user.address)).to.be.false;
+            expect(await ercData.hasAccess(privateDataId, reader1.address)).to.be.false;
+        });
+
+        it("Should emit AccessGranted event", async function () {
+            await expect(
+                ercData.connect(provider).grantAccess(privateDataId, reader1.address)
+            ).to.emit(ercData, "AccessGranted")
+             .withArgs(privateDataId, reader1.address);
+        });
+
+        it("Should emit AccessRevoked event", async function () {
+            await ercData.connect(provider).grantAccess(privateDataId, reader1.address);
+            
+            await expect(
+                ercData.connect(provider).revokeAccess(privateDataId, reader1.address)
+            ).to.emit(ercData, "AccessRevoked")
+             .withArgs(privateDataId, reader1.address);
+        });
+
+        it("Should handle field access control", async function () {
+            // Add a field to the data type
+            await ercData.addField(TEST_DATA_TYPE, "accuracy", "uint256", true);
+            
+            // Set field on private data
+            const fieldValue = ethers.utils.defaultAbiCoder.encode(["uint256"], [95]);
+            await ercData.connect(provider).setField(privateDataId, "accuracy", fieldValue);
+            
+            // Provider should be able to read field
+            const providerFieldValue = await ercData.connect(provider).getField(privateDataId, "accuracy");
+            expect(providerFieldValue).to.equal(fieldValue);
+            
+            // Unauthorized user should not be able to read field
+            await expect(
+                ercData.connect(user).getField(privateDataId, "accuracy")
+            ).to.be.revertedWith("ERCData: access denied");
+            
+            // Grant access and verify field can be read
+            await ercData.connect(provider).grantAccess(privateDataId, reader1.address);
+            const readerFieldValue = await ercData.connect(reader1).getField(privateDataId, "accuracy");
+            expect(readerFieldValue).to.equal(fieldValue);
+        });
+    });
 }); 

@@ -19,6 +19,7 @@ interface IERCData {
         bytes signature;
         bool isVerified;
         uint256 batchId;
+        bool isPrivate;
     }
 
     /**
@@ -35,6 +36,7 @@ interface IERCData {
         mapping(string => bytes) fields;
         bool isVerified;
         uint256 batchId;
+        bool isPrivate;
     }
 
     /**
@@ -94,9 +96,14 @@ interface IERCData {
     
     // Events for snapshots
     event SnapshotTaken(bytes32 indexed snapshotId, string name, uint256 timestamp);
+    
+    // Events for access control
+    event AccessGranted(uint256 indexed dataId, address indexed reader);
+    event AccessRevoked(uint256 indexed dataId, address indexed reader);
 
     // Core data management functions
     function storeData(string calldata dataType, bytes calldata data, bytes calldata metadata, bytes calldata signature) external returns (uint256 dataId);
+    function storePrivateData(string calldata dataType, bytes calldata data, bytes calldata metadata, bytes calldata signature) external returns (uint256 dataId);
     function getData(uint256 dataId) external view returns (DataEntryView memory);
     function verifyData(uint256 dataId, bytes calldata verificationData) external returns (bool success);
     function updateData(uint256 dataId, bytes calldata newData, bytes calldata newMetadata, bytes calldata signature) external returns (bool success);
@@ -106,6 +113,12 @@ interface IERCData {
     function storeBatch(string calldata dataType, bytes[] calldata dataArray, bytes[] calldata metadataArray, bytes[] calldata signatures) external returns (uint256 batchId);
     function verifyBatch(uint256 batchId, bytes calldata verificationData) external returns (bool success);
     function getBatchData(uint256 batchId) external view returns (DataEntryView[] memory);
+
+    // Privacy and access control functions
+    function grantAccess(uint256 dataId, address reader) external;
+    function revokeAccess(uint256 dataId, address reader) external;
+    function grantBatchAccess(uint256 dataId, address[] calldata readers) external;
+    function hasAccess(uint256 dataId, address reader) external view returns (bool);
 
     // Data type management
     function registerDataType(string calldata typeName) external returns (bool);
