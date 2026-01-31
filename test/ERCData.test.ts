@@ -100,7 +100,7 @@ describe("ERCData", function () {
         it("Should prevent duplicate data type registration", async function () {
             await expect(
                 ercData.registerDataType(TEST_DATA_TYPE)
-            ).to.be.revertedWith("ERCData: data type already exists");
+            ).to.be.revertedWithCustomError(ercData, "AlreadyExists");
         });
     });
 
@@ -146,14 +146,14 @@ describe("ERCData", function () {
             const value = ethers.utils.defaultAbiCoder.encode(["uint256"], [42]);
             await expect(
                 ercData.connect(user).setField(dataId, "accuracy", value)
-            ).to.be.revertedWith("ERCData: not the data provider");
+            ).to.be.revertedWithCustomError(ercData, "Unauthorized");
         });
 
         it("Should revert when field not registered", async function () {
             const value = ethers.utils.defaultAbiCoder.encode(["uint256"], [1]);
             await expect(
                 ercData.connect(provider).setField(dataId, "unknownField", value)
-            ).to.be.revertedWith("ERCData: field not registered");
+            ).to.be.revertedWithCustomError(ercData, "NotFound");
         });
     });
 
@@ -189,7 +189,7 @@ describe("ERCData", function () {
                     TEST_METADATA,
                     ethers.utils.toUtf8Bytes("sig")
                 )
-            ).to.be.revertedWith("ERCData: must have provider role");
+            ).to.be.revertedWithCustomError(ercData, "Unauthorized");
         });
     });
 
@@ -306,7 +306,7 @@ describe("ERCData", function () {
             const enc = defaultAbiCoder.encode(["bytes4"], [SEL_EIP712]);
             await expect(
                 ercData.connect(user).verifyData(dataId, enc)
-            ).to.be.revertedWith("ERCData: must have verifier role");
+            ).to.be.revertedWithCustomError(ercData, "Unauthorized");
         });
 
         it("Should verify using hash method", async function () {
@@ -349,7 +349,7 @@ describe("ERCData", function () {
             const wrongEnc = defaultAbiCoder.encode(["bytes4"], ["0x00000000"]);
             await expect(
                 ercData.connect(verifier).verifyData(dataId, wrongEnc)
-            ).to.be.revertedWith("ERCData: invalid selector for length");
+            ).to.be.revertedWithCustomError(ercData, "InvalidInput");
         });
 
         it("Should fail EIP-712 after data change with stale signature", async function () {
@@ -481,7 +481,7 @@ describe("ERCData", function () {
             const newData = ethers.utils.toUtf8Bytes("updated model weights");
             await expect(
                 ercData.connect(user).updateData(dataId, newData, TEST_METADATA, ethers.utils.toUtf8Bytes("sig"))
-            ).to.be.revertedWith("ERCData: not the data provider");
+            ).to.be.revertedWithCustomError(ercData, "Unauthorized");
         });
     });
 
@@ -549,7 +549,7 @@ describe("ERCData", function () {
         it("Should prevent unauthorized access to private data", async function () {
             await expect(
                 ercData.connect(user).getData(privateDataId)
-            ).to.be.revertedWith("ERCData: access denied");
+            ).to.be.revertedWithCustomError(ercData, "AccessDenied");
         });
 
         it("Should grant access to private data", async function () {
@@ -575,7 +575,7 @@ describe("ERCData", function () {
             // Reader should no longer be able to access the data
             await expect(
                 ercData.connect(reader1).getData(privateDataId)
-            ).to.be.revertedWith("ERCData: access denied");
+            ).to.be.revertedWithCustomError(ercData, "AccessDenied");
         });
 
         it("Should grant batch access to private data", async function () {
@@ -598,13 +598,13 @@ describe("ERCData", function () {
         it("Should prevent non-provider from granting access", async function () {
             await expect(
                 ercData.connect(user).grantAccess(privateDataId, reader1.address)
-            ).to.be.revertedWith("ERCData: only provider can grant access");
+            ).to.be.revertedWithCustomError(ercData, "Unauthorized");
         });
 
         it("Should prevent access control on public data", async function () {
             await expect(
                 ercData.connect(provider).grantAccess(publicDataId, reader1.address)
-            ).to.be.revertedWith("ERCData: data is not private");
+            ).to.be.revertedWithCustomError(ercData, "InvalidInput");
         });
 
         it("Should check hasAccess correctly for public data", async function () {
@@ -655,7 +655,7 @@ describe("ERCData", function () {
             // Unauthorized user should not be able to read field
             await expect(
                 ercData.connect(user).getField(privateDataId, "accuracy")
-            ).to.be.revertedWith("ERCData: access denied");
+            ).to.be.revertedWithCustomError(ercData, "AccessDenied");
             
             // Grant access and verify field can be read
             await ercData.connect(provider).grantAccess(privateDataId, reader1.address);
