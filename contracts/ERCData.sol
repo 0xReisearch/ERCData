@@ -33,6 +33,7 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     mapping(address => uint256[]) private _providerData;
     mapping(string => DataTypeInfo) private _dataTypes;
     mapping(bytes32 => Snapshot) private _snapshots;
+    mapping(uint256 => uint256[]) private _batchEntries; // batchId => array of dataIds
     
     bytes32[] private _snapshotIds;
     uint256 private _nextDataId;
@@ -49,9 +50,14 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     );
 
     // Constructor
+    // Constants for security limits
+    uint256 private constant MAX_DATA_SIZE = 1024 * 1024; // 1MB per data entry
+    uint256 private constant MAX_METADATA_SIZE = 64 * 1024; // 64KB per metadata entry
+    uint256 private constant MAX_BATCH_SIZE = 100; // Maximum entries per batch
+
     constructor() EIP712("ERCData", "1") {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(SNAPSHOT_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(SNAPSHOT_ROLE, msg.sender);
         _nextDataId = 1;
         _nextBatchId = 1;
     }
@@ -66,6 +72,9 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         require(hasRole(PROVIDER_ROLE, msg.sender), "ERCData: must have provider role");
         require(bytes(dataType).length > 0, "ERCData: dataType cannot be empty");
         require(data.length > 0, "ERCData: data cannot be empty");
+        require(data.length <= MAX_DATA_SIZE, "ERCData: data too large");
+        require(metadata.length <= MAX_METADATA_SIZE, "ERCData: metadata too large");
+        // signature requirements removed - optional parameter
         require(_dataTypes[dataType].exists, "ERCData: data type not registered");
 
         uint256 dataId = _nextDataId++;
@@ -97,12 +106,20 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     ) external override whenNotPaused nonReentrant returns (uint256) {
         require(hasRole(PROVIDER_ROLE, msg.sender), "ERCData: must have provider role");
         require(dataArray.length == metadataArray.length && dataArray.length == signatures.length, "ERCData: array lengths mismatch");
+        require(dataArray.length > 0, "ERCData: empty batch not allowed");
+        require(dataArray.length <= MAX_BATCH_SIZE, "ERCData: batch too large");
+        require(bytes(dataType).length > 0, "ERCData: dataType cannot be empty");
         require(_dataTypes[dataType].exists, "ERCData: data type not registered");
 
         uint256 batchId = _nextBatchId++;
         uint256 entriesCount = dataArray.length;
 
         for (uint256 i = 0; i < entriesCount; i++) {
+            require(dataArray[i].length > 0, "ERCData: data cannot be empty");
+            require(dataArray[i].length <= MAX_DATA_SIZE, "ERCData: data too large");
+            require(metadataArray[i].length <= MAX_METADATA_SIZE, "ERCData: metadata too large");
+            // signature requirements removed - optional parameter
+            
             uint256 dataId = _nextDataId++;
             
             // Initialize struct fields individually
@@ -118,6 +135,7 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
             entry.batchId = batchId;
 
             _providerData[msg.sender].push(dataId);
+            _batchEntries[batchId].push(dataId); // Add to batch mapping
             emit DataStored(dataId, msg.sender, dataType, block.timestamp);
         }
 
@@ -128,6 +146,8 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     // Data type management
     function registerDataType(string calldata typeName) external override returns (bool) {
         require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "ERCData: must have admin role");
+        require(bytes(typeName).length > 0, "ERCData: typeName cannot be empty");
+        require(bytes(typeName).length <= 64, "ERCData: typeName too long");
         require(!_dataTypes[typeName].exists, "ERCData: data type already exists");
 
         _dataTypes[typeName].name = typeName;
@@ -144,7 +164,13 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         bool isIndexed
     ) external override {
         require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "ERCData: must have admin role");
+        require(bytes(typeName).length > 0, "ERCData: typeName cannot be empty");
+        require(bytes(fieldName).length > 0, "ERCData: fieldName cannot be empty");
+        require(bytes(fieldType).length > 0, "ERCData: fieldType cannot be empty");
+        require(bytes(fieldName).length <= 32, "ERCData: fieldName too long");
+        require(bytes(fieldType).length <= 32, "ERCData: fieldType too long");
         require(_dataTypes[typeName].exists, "ERCData: data type not registered");
+        require(bytes(_dataTypes[typeName].fieldTypes[fieldName]).length == 0, "ERCData: field already exists");
         
         _dataTypes[typeName].fieldNames.push(fieldName);
         _dataTypes[typeName].fieldTypes[fieldName] = fieldType;
@@ -159,10 +185,15 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         uint256[] calldata dataIds
     ) external override whenNotPaused returns (bytes32) {
         require(hasRole(SNAPSHOT_ROLE, msg.sender), "ERCData: must have snapshot role");
+        require(bytes(name).length > 0, "ERCData: snapshot name cannot be empty");
+        require(bytes(name).length <= 64, "ERCData: snapshot name too long");
+        require(dataIds.length > 0, "ERCData: empty snapshot not allowed");
+        require(dataIds.length <= 1000, "ERCData: snapshot too large"); // Prevent gas issues
         
-        bytes32 snapshotId = keccak256(abi.encodePacked(name, block.timestamp, msg.sender));
+        bytes32 snapshotId = keccak256(abi.encodePacked(name, block.timestamp, msg.sender, dataIds.length));
+        require(_snapshots[snapshotId].timestamp == 0, "ERCData: snapshot collision");
+        
         Snapshot storage snapshot = _snapshots[snapshotId];
-        
         snapshot.id = snapshotId;
         snapshot.name = name;
         snapshot.timestamp = block.timestamp;
@@ -170,6 +201,7 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
 
         for (uint256 i = 0; i < dataIds.length; i++) {
             require(_dataEntries[dataIds[i]].provider != address(0), "ERCData: data entry does not exist");
+            // Note: Duplicate check removed for gas efficiency - duplicates just overwrite the same data
             snapshot.data[dataIds[i]] = _dataEntries[dataIds[i]].data;
         }
 
@@ -254,32 +286,24 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         override 
         returns (DataEntryView[] memory) 
     {
-        uint256 count = 0;
-        for (uint256 i = 1; i < _nextDataId; i++) {
-            if (_dataEntries[i].batchId == batchId) {
-                count++;
-            }
-        }
-
-        DataEntryView[] memory entries = new DataEntryView[](count);
-        uint256 index = 0;
+        uint256[] memory dataIds = _batchEntries[batchId];
+        require(dataIds.length > 0, "ERCData: batch does not exist or is empty");
         
-        for (uint256 i = 1; i < _nextDataId; i++) {
-            if (_dataEntries[i].batchId == batchId) {
-                DataEntry storage entry = _dataEntries[i];
-                entries[index] = DataEntryView({
-                    dataId: entry.dataId,
-                    provider: entry.provider,
-                    timestamp: entry.timestamp,
-                    dataType: entry.dataType,
-                    data: entry.data,
-                    metadata: entry.metadata,
-                    signature: entry.signature,
-                    isVerified: entry.isVerified,
-                    batchId: entry.batchId
-                });
-                index++;
-            }
+        DataEntryView[] memory entries = new DataEntryView[](dataIds.length);
+        
+        for (uint256 i = 0; i < dataIds.length; i++) {
+            DataEntry storage entry = _dataEntries[dataIds[i]];
+            entries[i] = DataEntryView({
+                dataId: entry.dataId,
+                provider: entry.provider,
+                timestamp: entry.timestamp,
+                dataType: entry.dataType,
+                data: entry.data,
+                metadata: entry.metadata,
+                signature: entry.signature,
+                isVerified: entry.isVerified,
+                batchId: entry.batchId
+            });
         }
 
         return entries;
@@ -378,24 +402,26 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     {
         require(hasRole(VERIFIER_ROLE, msg.sender), "ERCData: must have verifier role");
         
+        uint256[] memory dataIds = _batchEntries[batchId];
+        require(dataIds.length > 0, "ERCData: batch does not exist or is empty");
+        
         bool aggregateValid = true;
-        for (uint256 i = 1; i < _nextDataId; i++) {
-            if (_dataEntries[i].batchId == batchId) {
-                (bool ok, string memory method) = _verifyDataIntegrity(i, verificationData);
+        for (uint256 i = 0; i < dataIds.length; i++) {
+            uint256 dataId = dataIds[i];
+            (bool ok, string memory method) = _verifyDataIntegrity(dataId, verificationData);
 
-                // Record per-entry verification info and state
-                _verifications[i] = VerificationInfo({
-                    verifier: msg.sender,
-                    timestamp: block.timestamp,
-                    isValid: ok,
-                    verificationMethod: method,
-                    verificationData: verificationData
-                });
-                _dataEntries[i].isVerified = ok;
+            // Record per-entry verification info and state
+            _verifications[dataId] = VerificationInfo({
+                verifier: msg.sender,
+                timestamp: block.timestamp,
+                isValid: ok,
+                verificationMethod: method,
+                verificationData: verificationData
+            });
+            _dataEntries[dataId].isVerified = ok;
 
-                emit DataVerified(i, msg.sender, ok, block.timestamp);
-                aggregateValid = aggregateValid && ok;
-            }
+            emit DataVerified(dataId, msg.sender, ok, block.timestamp);
+            aggregateValid = aggregateValid && ok;
         }
 
         emit BatchVerified(batchId, msg.sender, aggregateValid);
@@ -409,8 +435,12 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         bytes calldata signature
     ) external override whenNotPaused nonReentrant returns (bool) {
         DataEntry storage entry = _dataEntries[dataId];
+        require(entry.provider != address(0), "ERCData: data does not exist");
         require(entry.provider == msg.sender, "ERCData: not the data provider");
         require(newData.length > 0, "ERCData: new data cannot be empty");
+        require(newData.length <= MAX_DATA_SIZE, "ERCData: new data too large");
+        require(newMetadata.length <= MAX_METADATA_SIZE, "ERCData: new metadata too large");
+        // signature requirements removed - optional parameter
 
         entry.data = newData;
         entry.metadata = newMetadata;
@@ -442,6 +472,7 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         returns (bool, string memory)
     {
         DataEntry storage entry = _dataEntries[dataId];
+        require(entry.provider != address(0), "ERCData: data entry does not exist");
 
         // Expect verificationData to be abi.encode(selector) or abi.encode(selector, payload)
         if (verificationData.length == 32) {
@@ -462,12 +493,18 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
             );
             bytes32 digest = _hashTypedDataV4(structHash);
 
+            // Protect against signature malleability and zero address
+            if (entry.signature.length != 65) {
+                return (false, "EIP712_PROVIDER_SIG");
+            }
+            
             address recovered = ECDSA.recover(digest, entry.signature);
-            bool ok = (recovered == entry.provider);
+            bool ok = (recovered == entry.provider && recovered != address(0));
             return (ok, "EIP712_PROVIDER_SIG");
         } else if (verificationData.length == 64) {
             (bytes4 selector, bytes32 expectedHash) = abi.decode(verificationData, (bytes4, bytes32));
             require(selector == VERIF_HASH, "ERCData: unknown selector");
+            require(expectedHash != bytes32(0), "ERCData: invalid hash");
             bool ok = (keccak256(entry.data) == expectedHash);
             return (ok, "DATA_HASH_EQ");
         } else {
@@ -480,5 +517,30 @@ contract ERCData is IERCData, AccessControl, Pausable, ReentrancyGuard, EIP712 {
         // If a field was added, it must have a non-empty type string
         string memory t = _dataTypes[typeName].fieldTypes[fieldName];
         return bytes(t).length != 0;
+    }
+
+    // Admin functions for emergency management
+    function pause() external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "ERCData: must have admin role");
+        _pause();
+    }
+
+    function unpause() external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "ERCData: must have admin role");
+        _unpause();
+    }
+
+    // View function to get batch info without data
+    function getBatchInfo(uint256 batchId) external view returns (uint256[] memory dataIds, uint256 count) {
+        dataIds = _batchEntries[batchId];
+        count = dataIds.length;
+    }
+
+    // Emergency function to remove corrupted batch mapping (admin only)
+    function removeBatchMapping(uint256 batchId) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "ERCData: must have admin role");
+        require(_batchEntries[batchId].length > 0, "ERCData: batch does not exist");
+        
+        delete _batchEntries[batchId];
     }
 }
