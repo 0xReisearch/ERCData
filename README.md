@@ -523,3 +523,5 @@ const expectedHash = ethers.utils.keccak256(dataArray[0]);
 const hashSel = ethers.utils.defaultAbiCoder.encode(["bytes4","bytes32"], ["0x48415348", expectedHash]);
 await ercData.connect(verifier).verifyBatch(batchId, hashSel);
 ```
+
+made with ❤️ by Rei Labs
